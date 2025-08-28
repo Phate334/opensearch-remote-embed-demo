@@ -1,0 +1,72 @@
+services:
+  opensearch:
+    image: opensearchproject/opensearch:3.2.0
+    volumes:
+      - ./db-data:/usr/share/opensearch/data
+    container_name: opensearch-node
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch-node
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      # 初始 admin 密碼 (OpenSearch 3.x 要求)。建議改為使用 .env 變數: OPENSEARCH_INITIAL_ADMIN_PASSWORD=... 
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=ChangeMeNow!_A1
+      # 啟用 ML connectors
+      - plugins.ml_commons.connector_access_control_enabled=true
+      # 收斂只允許呼叫 embed 服務 /v1/ 下的路徑，降低風險
+      - plugins.ml_commons.trusted_connector_endpoints_regex=^http://embed:8080/v1/.*
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -k https://localhost:9200 >/dev/null || exit 1"]
+      interval: 60s
+      retries: 3
+  embed:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b6303
+    ports:
+      - 8081:8080
+    volumes:
+      - ./models:/root/.cache/llama.cpp
+    environment:
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_HF_REPO=phate334/multilingual-e5-large-gguf:F16
+      - LLAMA_ARG_ALIAS=e5-large
+      - LLAMA_ARG_N_GPU_LAYERS=99
+      - LLAMA_ARG_EMBEDDINGS=1
+      - LLAMA_ARG_UBATCH=1024
+    command: ["--log-disable"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: all
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b6303
+    ports:
+      - 8080:8080
+    volumes:
+      - ./models:/root/.cache/llama.cpp
+    environment:
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_HF_REPO=ggml-org/gemma-3-1b-it-qat-GGUF
+      - LLAMA_ARG_ALIAS=gemma-3
+      - LLAMA_ARG_N_GPU_LAYERS=99
+      - LLAMA_ARG_CTX_SIZE=4096
+      - LLAMA_ARG_FLASH_ATTN=1
+      - LLAMA_ARG_CACHE_REUSE=256
+    command: ["--log-disable"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: all
